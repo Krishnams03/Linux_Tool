@@ -424,3 +424,4 @@ class AlertEngine:
             urllib.request.urlopen(req, timeout=10)
         except Exception as exc:
             logger.error("Webhook alert failed: %s", exc)
+

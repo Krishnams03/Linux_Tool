@@ -84,3 +84,4 @@ class BaseMonitor(abc.ABC):
     def teardown(self):
         """Called once after the polling loop ends."""
         pass
+

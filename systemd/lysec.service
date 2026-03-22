@@ -1,0 +1,27 @@
+[Unit]
+Description=LySec - Linux Forensics Monitoring Daemon
+Documentation=https://github.com/yourname/lysec
+After=network.target syslog.target
+Wants=network.target
+
+[Service]
+Type=forking
+PIDFile=/var/run/lysec/lysecd.pid
+ExecStart=/usr/local/bin/lysecd start
+ExecStop=/usr/local/bin/lysecd stop
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lysec
+
+# Security hardening (daemon itself runs as root to read all logs)
+ProtectSystem=strict
+ReadWritePaths=/var/log/lysec /var/lib/lysec /var/run/lysec
+ProtectHome=read-only
+NoNewPrivileges=false
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

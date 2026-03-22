@@ -1,297 +1,339 @@
-# DFTool — Digital Forensics Monitoring Daemon
+# LySec - Linux Forensics Monitoring Daemon
 
-> **Detect · Log · Alert — Never Prevent**
+> Detect - Log - Alert - Correlate (No Prevention)
 
-A Linux daemon that continuously monitors system activity and produces forensic-grade,
-tamper-evident logs for post-incident digital forensics and timeline reconstruction.
+LySec is a Linux daemon that continuously monitors host activity and writes
+forensic-grade, tamper-evident logs for post-incident investigation and
+timeline reconstruction.
 
-**DFTool is a passive forensic tool. It observes and records — it does NOT prevent,
-block, or modify any system behaviour.** This is by design: preserving an untainted
-evidence trail is more valuable than inline prevention for forensic investigations.
-
----
+LySec is intentionally passive: it detects and records events, but does not block,
+kill, or prevent activity.
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  dftoold (daemon)                                                │
+│  lysecd (daemon)                                                 │
 │                                                                  │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────────┐  │
-│  │ USB Monitor│ │Login Monitor│ │Net Monitor │ │Process Monitor│  │
-│  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └──────┬───────┘  │
-│        │              │              │               │           │
-│  ┌─────┴──────────────┴──────────────┴───────────────┴───────┐  │
-│  │                    Alert Engine                             │  │
-│  │  (deduplicate, correlate, score incidents, dispatch, fan-out)│  │
-│  └─────┬──────────┬──────────┬──────────┬────────────────────┘  │
-│        │          │          │          │                        │
-│  ┌─────┴──┐ ┌────┴───┐ ┌───┴────┐ ┌───┴─────┐                  │
-│  │JSON Log│ │ Syslog │ │ Email  │ │ Webhook │                   │
-│  └────────┘ └────────┘ └────────┘ └─────────┘                   │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │         Forensic Logger (SHA-256 integrity hashing)        │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                                                                  │
-│  ┌──────────────┐                                                │
-│  │  FS Monitor   │  (inotify via watchdog)                       │
-│  └──────────────┘                                                │
+│  USB | Login | Network | Process | Filesystem monitors           │
+│                            │                                     │
+│                        Alert Engine                              │
+│                            │                                     │
+│               JSON logs | syslog | email | webhook               │
 └──────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
-│  dftool (CLI)                                                    │
-│  status | alerts | timeline | search | export | verify           │
+│  lysec (CLI) and lysec-gui (desktop dashboard)                  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## What It Monitors
+## What LySec Monitors
 
-| Monitor      | What it watches                                      | Key alerts                                         |
-|-------------|------------------------------------------------------|---------------------------------------------------|
-| **USB**      | USB device attach/detach via udev or sysfs           | Unknown device, mass storage, BadUSB              |
-| **Login**    | auth.log, secure, wtmp, btmp                         | Root login, brute-force, failed auth, sudo, su    |
-| **Network**  | Listening sockets, interfaces, promiscuous mode      | New listener, rogue NIC, sniffing detected        |
-| **Process**  | Process table via psutil                              | Suspicious tools (nmap, nc…), privilege escalation|
-| **Filesystem**| Critical paths via inotify (watchdog)               | /etc/passwd, shadow, sudoers, cron, SSH keys      |
+| Monitor | Coverage | Example alerts |
+|---|---|---|
+| USB | Device attach/detach via udev/sysfs | Unknown device, removable media |
+| Login | auth.log/secure/wtmp/btmp | Root login, brute-force, sudo/su |
+| Network | Listeners, interfaces, promisc mode | New listener, rogue NIC, sniffing |
+| Process | Process table and UID changes | Suspicious binary, privilege escalation |
+| Filesystem | Critical paths via inotify/watchdog | passwd/shadow/ssh/cron tampering |
 
-## Stronger Novel Capability: Cross-Monitor Incident Correlation
+## Why Detect-Only
 
-DFTool now includes a correlation layer that promotes isolated alerts into a
-single high-confidence incident when multiple monitors report related activity
-within a time window.
-
-- Correlates by shared forensic indicators (`ip`, `user`, `pid`, `interface`, `path`, `serial`, `host`, `listener`)
-- Uses a named composite score model (`FACES-v1`) across contributing events
-- Emits a `CORRELATED_INCIDENT` alert with linked contributing alert IDs
-- Suppresses duplicate incident emissions for the same campaign key
-
-`FACES-v1` combines five components:
-- Severity evidence from contributing alert severities
-- Monitor diversity bonus (more independent monitors = stronger confidence)
-- Burst bonus (tighter event clustering in time = stronger confidence)
-- Indicator rarity bonus (rarer indicator in window = stronger confidence)
-- Attack-chain bonus from ordered event patterns (e.g., login abuse → suspicious execution)
-
-This makes the output stronger for investigations because analysts get
-campaign-level evidence, not only individual point alerts.
-
-## Why Detection-Only (Not Prevention)?
-
-This is a **forensic** tool, not an IDS/IPS. Here's why:
-
-1. **Evidence integrity** — Inline prevention modifies system state, potentially destroying forensic evidence
-2. **Non-interference** — A monitoring tool that blocks activity can itself become a point of failure
-3. **Timeline accuracy** — Clean, unaltered logs are admissible as evidence; modified state is not
-4. **Complementary** — Use DFTool alongside prevention tools (iptables, SELinux, fail2ban) — it provides the forensic layer they lack
-5. **False positive safety** — Blocking on false positives causes outages; logging on false positives is harmless
+1. Preserves evidence integrity.
+2. Avoids interference with production systems.
+3. Improves timeline reliability.
+4. Complements prevention controls (iptables, SELinux, fail2ban).
+5. Reduces outage risk from false positives.
 
 ## Installation
 
 ```bash
-# Clone the repository
 git clone <repo-url> && cd DF_Tool
-
-# Run installer (as root)
 sudo ./install.sh
 ```
 
-The installer will:
-- Install Python dependencies
-- Copy config to `/etc/dftool/dftool.yaml`
-- Install systemd service
-- Create log/evidence directories with proper permissions
+Installer actions:
+1. Creates isolated venv at `/opt/lysec/.venv`.
+2. Installs package and dependencies.
+3. Installs config at `/etc/lysec/lysec.yaml`.
+4. Installs systemd unit `lysec.service`.
+5. Creates command links in `/usr/local/bin`.
+
+### PEP 668 note
+
+On modern Debian/Ubuntu/Kali, system pip is externally managed. LySec avoids this by using
+its own virtual environment.
+
+If required:
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv
+sudo ./install.sh
+```
 
 ## Quick Start
 
 ```bash
-# Start the daemon
-sudo systemctl start dftool
-
-# Check status
-sudo systemctl status dftool
-sudo dftool status
-
-# View real-time alerts
-sudo dftool alerts --last 1h
-
-# Run in foreground (debug mode)
-sudo dftoold start --foreground
+sudo systemctl start lysec
+sudo systemctl status lysec
+sudo lysec status
+sudo lysec alerts --last 1h
 ```
 
-## CLI Usage
+Run foreground debug mode:
 
 ```bash
-# View recent alerts filtered by severity
-sudo dftool alerts --severity HIGH --last 2h
+sudo lysecd start --foreground
+```
 
-# Generate forensic timeline
-sudo dftool timeline --start 2026-02-20T00:00:00 --end 2026-02-21T23:59:59
+Launch GUI:
 
-# Filter timeline by monitor
-sudo dftool timeline --monitor usb
+```bash
+lysec-gui
+```
 
-# Full-text search across all logs
-sudo dftool search --query "nmap"
+## Operational Timeline Runbook
 
-# Export evidence to JSON or CSV
-sudo dftool export --format json --output /tmp/evidence.json
-sudo dftool export --format csv --output /tmp/timeline.csv
+Use the following sequence in order during operations and investigations.
 
-# Verify log integrity (SHA-256 manifests)
-sudo dftool verify
+1. Load latest unit definitions.
 
-# Evaluate correlation models on replayed alerts
-sudo dftool-eval --alerts-file /var/log/dftool/alerts.log --top 10
+```bash
+sudo systemctl daemon-reload
+```
+
+Purpose: reloads systemd unit files after install/changes.
+Analysis: continue only if no unit parse errors are shown.
+
+2. Enable autostart.
+
+```bash
+sudo systemctl enable lysec
+```
+
+Purpose: starts LySec on every boot.
+Analysis: confirm output contains created symlink and enabled state.
+
+3. Start the daemon.
+
+```bash
+sudo systemctl start lysec
+```
+
+Purpose: launches LySec in background.
+Analysis: if start fails, inspect service logs in step 5.
+
+4. Verify service state.
+
+```bash
+sudo systemctl status lysec
+```
+
+Purpose: confirms active/running status and PID.
+Analysis: good state is `active (running)`.
+
+5. Live service event stream.
+
+```bash
+sudo journalctl -u lysec -f
+```
+
+Purpose: tails daemon/service logs in real time.
+Analysis: look for monitor start lines and warnings/errors.
+
+6. CLI health snapshot.
+
+```bash
+sudo lysec status
+```
+
+Purpose: LySec-level health and log directory visibility.
+Analysis: confirms daemon detection and current log files.
+
+7. Recent alerts (triage view).
+
+```bash
+sudo lysec alerts --last 30m
+```
+
+Purpose: fetches latest alert timeline.
+Analysis: review by severity first: CRITICAL, HIGH, MEDIUM.
+
+8. Full time-bounded timeline.
+
+```bash
+sudo lysec timeline --start 2026-03-22T00:00:00 --end 2026-03-22T23:59:59
+```
+
+Purpose: reconstructs host activity chronology for a fixed window.
+Analysis: identify event chains across monitors.
+
+9. Indicator pivots.
+
+```bash
+sudo lysec search --query "root"
+sudo lysec search --query "192.168."
+sudo lysec search --query "sudo"
+```
+
+Purpose: pivots investigation by user/IP/privilege indicators.
+Analysis: repeated indicator across multiple event types increases confidence.
+
+10. Export evidence artifacts.
+
+```bash
+sudo lysec export --format json --output /tmp/lysec_evidence.json --source all
+sudo lysec export --format csv --output /tmp/lysec_timeline.csv --source all
+```
+
+Purpose: creates portable evidence for reporting and external analysis.
+Analysis: prefer JSON for fidelity, CSV for quick spreadsheet review.
+
+11. Validate evidence integrity.
+
+```bash
+sudo lysec verify
+```
+
+Purpose: checks log files against SHA-256 manifests.
+Analysis: any tampered/missing result must be treated as an integrity incident.
+
+12. Correlation analysis.
+
+```bash
+sudo lysec-eval --alerts-file /var/log/lysec/alerts.log --window-sec 300 --top 10 --output-json /tmp/lysec_eval.json --output-csv /tmp/lysec_eval_incidents.csv
+sudo lysec-eval-plot --input-json /tmp/lysec_eval.json --output-dir /tmp/lysec_eval_plots
+```
+
+Purpose: groups related low-level alerts into higher-confidence incidents.
+Analysis: prioritize highest scores and multi-monitor incidents.
+
+13. End-of-session shutdown.
+
+```bash
+sudo systemctl stop lysec
+sudo systemctl status lysec
+```
+
+Purpose: cleanly stops monitors and confirms state.
+Analysis: expected final state is inactive/dead.
+
+### Analysis Workflow
+
+1. Define exact time window first.
+2. Review alerts in that window.
+3. Pivot by indicator (`ip`, `user`, `pid`, `path`, `serial`).
+4. Confirm sequence in `timeline` output.
+5. Export JSON/CSV evidence.
+6. Run `lysec verify` before sharing evidence.
+7. Run `lysec-eval` for campaign-level incident correlation.
+
+## CLI Commands
+
+```bash
+sudo lysec status
+sudo lysec alerts --severity HIGH --last 2h
+sudo lysec timeline --start 2026-02-20T00:00:00 --end 2026-02-21T23:59:59
+sudo lysec timeline --monitor usb
+sudo lysec search --query "nmap"
+sudo lysec export --format json --output /tmp/evidence.json
+sudo lysec export --format csv --output /tmp/timeline.csv
+sudo lysec verify
 ```
 
 ## Correlation Evaluation
 
-Use the evaluator to benchmark baseline correlation (severity sum) versus
-`FACES-v1` on historical JSONL alerts.
+Replay historical alerts and compare baseline vs FACES-v1 scoring:
 
 ```bash
-sudo dftool-eval \
-  --alerts-file /var/log/dftool/alerts.log \
+sudo lysec-eval \
+  --alerts-file /var/log/lysec/alerts.log \
   --window-sec 300 \
   --baseline-min-score 8 \
   --faces-min-score 45 \
-  --output-json /tmp/dftool_eval.json \
-  --output-csv /tmp/dftool_eval_incidents.csv \
+  --output-json /tmp/lysec_eval.json \
+  --output-csv /tmp/lysec_eval_incidents.csv \
   --top 10
 ```
 
-The report includes incident counts, overlap, average score/event richness,
-top-scoring FACES incidents, and matched chain-pattern frequencies.
-Use export flags to produce paper-ready artifacts:
-- `--output-json` writes full summary + both model incident sets.
-- `--output-csv` writes incident-level rows for tables/plots.
-
-Generate publication-ready plots from evaluator outputs:
+Generate plots:
 
 ```bash
-sudo dftool-eval-plot \
-  --input-json /tmp/dftool_eval.json \
-  --output-dir /tmp/dftool_eval_plots
+sudo lysec-eval-plot \
+  --input-json /tmp/lysec_eval.json \
+  --output-dir /tmp/lysec_eval_plots
 ```
-
-Plot artifacts generated:
-- `threshold_sweep.png` (incident count vs score threshold)
-- `score_distribution.png` (baseline vs FACES score histogram)
-- `model_comparison.png` (incident count, avg score, avg monitor diversity)
-- `chain_pattern_frequency.png` (FACES matched chain-pattern frequency)
-- `threshold_sweep.csv` (table backing the threshold sweep figure)
-- `model_comparison.csv` (table backing the model comparison figure)
-- `chain_pattern_frequency.csv` (table backing chain frequency figure)
 
 ## Configuration
 
-Edit `/etc/dftool/dftool.yaml` to customise:
+Primary config file:
 
-```yaml
-monitors:
-  usb:
-    enabled: true
-    whitelist: ["8087:0024"]          # Known USB devices
-
-  login:
-    failed_login_threshold: 5         # Brute-force detection
-    failed_login_window_sec: 300
-
-  network:
-    alert_on_promiscuous: true        # Detect sniffing
-
-  process:
-    suspicious_names:                 # Add your own
-      - nc
-      - nmap
-      - tcpdump
-
-  filesystem:
-    watch_paths:                      # Add paths to monitor
-      - /etc/passwd
-      - /etc/shadow
-      - /root/.ssh
-
-alerts:
-  syslog: true
-  correlation:
-    enabled: true
-    model_name: FACES-v1
-    window_sec: 300
-    min_unique_monitors: 2
-    min_score: 45
-    score_weights:
-      severity: 4.0
-      diversity: 7.0
-      burst: 20.0
-      rarity: 25.0
-      chain: 1.0
-  email:
-    enabled: true
-    smtp_server: smtp.example.com
-    to_addr: soc@example.com
-  webhook:
-    enabled: true
-    url: https://hooks.slack.com/...
+```bash
+/etc/lysec/lysec.yaml
 ```
 
-Reload config without restart:
+Reload config without full restart:
+
 ```bash
-sudo systemctl reload dftool   # sends SIGHUP
+sudo systemctl reload lysec
 ```
 
 ## Log Format
 
-Every log entry is a self-contained JSON record (one per line), compatible with
-SIEM tools, Plaso, Timesketch, and Splunk:
+Each line is JSON and SIEM-friendly:
 
 ```json
 {
   "timestamp": "2026-02-21T14:30:00.123456+00:00",
   "epoch": 1771595400.123,
   "hostname": "forensic-ws",
-  "session_id": "a1b2c3d4-...",
   "level": "WARNING",
-  "source": "dftool.monitor.usb",
+  "source": "lysec.monitor.usb",
   "message": "USB ATTACHED: SanDisk Ultra [0781:5583] serial=ABC123",
   "event_type": "USB_DEVICE_ATTACHED",
   "monitor": "usb",
-  "severity": "HIGH",
-  "details": {
-    "vendor_id": "0781",
-    "product_id": "5583",
-    "vendor": "SanDisk",
-    "serial": "ABC123"
-  }
+  "severity": "HIGH"
 }
 ```
 
-## Log Integrity
+## Integrity Verification
 
-- Every rotated log file is SHA-256 hashed and recorded in a `.sha256` manifest
-- Use `dftool verify` to check all logs against their manifests
-- Tampered files are flagged immediately
+1. Rotated logs are hashed into `.sha256` manifests.
+2. Run `lysec verify` to validate integrity.
+3. Modified or missing files are flagged.
 
-## File Locations
+## Runtime Paths
 
-| Path                          | Purpose                     |
-|-------------------------------|-----------------------------|
-| `/etc/dftool/dftool.yaml`     | Configuration               |
-| `/var/log/dftool/dftool.log`  | Main forensic event log     |
-| `/var/log/dftool/alerts.log`  | Alert-specific log          |
-| `/var/log/dftool/*.sha256`    | Integrity manifests         |
-| `/var/lib/dftool/evidence/`   | Evidence artifacts          |
-| `/var/run/dftool/dftoold.pid` | Daemon PID file             |
+| Path | Purpose |
+|---|---|
+| `/etc/lysec/lysec.yaml` | Main configuration |
+| `/var/log/lysec/lysec.log` | Main event log |
+| `/var/log/lysec/alerts.log` | Alert log |
+| `/var/log/lysec/*.sha256` | Integrity manifests |
+| `/var/lib/lysec/evidence/` | Evidence artifacts |
+| `/var/run/lysec/lysecd.pid` | PID file |
 
-## Dependencies
+## GUI Notes
 
-- Python 3.8+
-- `pyudev` — USB monitoring via udev
-- `psutil` — Process and network monitoring
-- `watchdog` — Filesystem monitoring via inotify
-- `pyyaml` — Configuration parsing
-- `rich` — CLI table formatting (optional but recommended)
+The GUI (`lysec-gui`) provides:
+1. Service controls (start, stop, restart).
+2. Alerts table view.
+3. Timeline viewer.
+
+If GUI launch fails on minimal servers:
+
+```bash
+sudo apt install -y python3-tk
+```
+
+## Backward Compatibility
+
+Legacy command aliases remain available:
+1. `dftool`
+2. `dftoold`
+3. `dftool-eval`
+4. `dftool-eval-plot`
 
 ## Uninstall
 
@@ -299,7 +341,7 @@ SIEM tools, Plaso, Timesketch, and Splunk:
 sudo ./uninstall.sh
 ```
 
-Forensic data (logs, evidence, config) is preserved by default.
+Logs/evidence/config are intentionally preserved unless manually removed.
 
 ## License
 

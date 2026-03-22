@@ -1,17 +1,17 @@
 """
-DFTool - Digital Forensics Monitoring Daemon for Linux
+LySec - Linux Forensics Monitoring Daemon
 Setup script for installation.
 """
 
 from setuptools import setup, find_packages
 
 setup(
-    name="dftool",
+    name="lysec",
     version="1.0.0",
-    description="Linux Digital Forensics Monitoring Daemon - Detect, Log, Alert (No Prevention)",
-    author="DFTool Team",
+    description="LySec Linux Forensics Monitoring - Detect, Log, Alert (No Prevention)",
+    author="LySec Team",
     license="MIT",
-    packages=find_packages(where="src"),
+    packages=find_packages(where="src", include=["lysec", "lysec.*"]),
     package_dir={"": "src"},
     python_requires=">=3.8",
     install_requires=[
@@ -25,10 +25,15 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "dftool=dftool.cli:main",
-            "dftoold=dftool.daemon:main",
-            "dftool-eval=dftool.evaluate:main",
-            "dftool-eval-plot=dftool.plot_eval:main",
+            "lysec=lysec.cli:main",
+            "lysecd=lysec.daemon:main",
+            "lysec-eval=lysec.evaluate:main",
+            "lysec-eval-plot=lysec.plot_eval:main",
+            "lysec-gui=lysec.gui:main",
+            "dftool=lysec.cli:main",
+            "dftoold=lysec.daemon:main",
+            "dftool-eval=lysec.evaluate:main",
+            "dftool-eval-plot=lysec.plot_eval:main",
         ],
     },
     classifiers=[

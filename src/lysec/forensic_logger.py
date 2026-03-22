@@ -149,3 +149,4 @@ def _get_hostname() -> str:
         return os.uname().nodename
     except Exception:
         return os.environ.get("HOSTNAME") or os.environ.get("COMPUTERNAME") or "unknown-host"
+

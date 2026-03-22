@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════
-# DFTool Installer
-# Installs the Digital Forensics Monitoring Daemon on Linux
+# LySec Installer
+# Installs the Linux Forensics Monitoring Daemon
 # Must be run as root.
 # ══════════════════════════════════════════════════════════════════
 
@@ -13,19 +13,27 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-INSTALL_DIR="/opt/dftool"
-CONFIG_DIR="/etc/dftool"
-LOG_DIR="/var/log/dftool"
-EVIDENCE_DIR="/var/lib/dftool/evidence"
-PID_DIR="/var/run/dftool"
+INSTALL_DIR="/opt/lysec"
+VENV_DIR="/opt/lysec/.venv"
+CONFIG_DIR="/etc/lysec"
+LOG_DIR="/var/log/lysec"
+EVIDENCE_DIR="/var/lib/lysec/evidence"
+PID_DIR="/var/run/lysec"
 SYSTEMD_DIR="/etc/systemd/system"
 
 banner() {
     echo -e "${CYAN}"
-    echo "╔══════════════════════════════════════════════════════════╗"
-    echo "║     DFTool — Digital Forensics Monitoring Daemon        ║"
-    echo "║     Detect · Log · Alert — Never Prevent                ║"
-    echo "╚══════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "   ██╗  ██╗   ██╗███████╗███████╗ ██████╗"
+    echo "   ██║  ╚██╗ ██╔╝██╔════╝██╔════╝██╔════╝"
+    echo "   ██║   ╚████╔╝ ███████╗█████╗  ██║     "
+    echo "   ██║    ╚██╔╝  ╚════██║██╔══╝  ██║     "
+    echo "   ███████╗██║   ███████║███████╗╚██████╗"
+    echo "   ╚══════╝╚═╝   ╚══════╝╚══════╝ ╚═════╝"
+    echo ""
+    echo "   Linux Forensics Monitoring Platform"
+    echo "   Detect · Log · Alert · Correlate"
+    echo ""
     echo -e "${NC}"
 }
 
@@ -55,12 +63,29 @@ check_python() {
     if [[ $PY_MAJOR -lt 3 ]] || [[ $PY_MINOR -lt 8 ]]; then
         error "Python 3.8+ required, found $PY_VER"
     fi
+
+    # Ensure venv module is available
+    if ! $PY -m venv --help >/dev/null 2>&1; then
+        error "Python venv module is missing. Install python3-venv first."
+    fi
+}
+
+create_venv() {
+    info "Creating isolated Python environment at $VENV_DIR …"
+    if [[ ! -d "$VENV_DIR" ]]; then
+        $PY -m venv "$VENV_DIR" || error "Failed to create virtual environment"
+    fi
+
+    VENV_PY="$VENV_DIR/bin/python"
+    VENV_PIP="$VENV_DIR/bin/pip"
+
+    "$VENV_PIP" install --upgrade pip >/dev/null 2>&1 || true
+    success "Virtual environment ready"
 }
 
 install_dependencies() {
     info "Installing Python dependencies …"
-    $PY -m pip install --upgrade pip >/dev/null 2>&1 || true
-    $PY -m pip install -r requirements.txt || error "Failed to install dependencies"
+    "$VENV_PIP" install -r requirements.txt || error "Failed to install dependencies"
     success "Dependencies installed"
 }
 
@@ -81,32 +106,45 @@ create_directories() {
 }
 
 install_files() {
-    info "Installing DFTool …"
+    info "Installing LySec …"
 
     # Copy source
-    cp -r src/dftool "$INSTALL_DIR/"
+    cp -r src/lysec "$INSTALL_DIR/"
 
     # Install as Python package
-    $PY -m pip install . || error "pip install failed"
+    "$VENV_PIP" install . || error "pip install failed"
 
-    success "DFTool package installed"
+    # Ensure commands are globally invokable for systemd and operators
+    ln -sf "$VENV_DIR/bin/lysec" /usr/local/bin/lysec
+    ln -sf "$VENV_DIR/bin/lysecd" /usr/local/bin/lysecd
+    ln -sf "$VENV_DIR/bin/lysec-eval" /usr/local/bin/lysec-eval
+    ln -sf "$VENV_DIR/bin/lysec-eval-plot" /usr/local/bin/lysec-eval-plot
+    ln -sf "$VENV_DIR/bin/lysec-gui" /usr/local/bin/lysec-gui
+
+    # Legacy command aliases for compatibility
+    ln -sf "$VENV_DIR/bin/dftool" /usr/local/bin/dftool
+    ln -sf "$VENV_DIR/bin/dftoold" /usr/local/bin/dftoold
+    ln -sf "$VENV_DIR/bin/dftool-eval" /usr/local/bin/dftool-eval
+    ln -sf "$VENV_DIR/bin/dftool-eval-plot" /usr/local/bin/dftool-eval-plot
+
+    success "LySec package installed"
 }
 
 install_config() {
-    if [[ -f "$CONFIG_DIR/dftool.yaml" ]]; then
-        warn "Config already exists at $CONFIG_DIR/dftool.yaml — keeping existing"
+    if [[ -f "$CONFIG_DIR/lysec.yaml" ]]; then
+        warn "Config already exists at $CONFIG_DIR/lysec.yaml — keeping existing"
     else
-        cp config/dftool.yaml "$CONFIG_DIR/dftool.yaml"
-        chmod 600 "$CONFIG_DIR/dftool.yaml"
-        success "Config installed to $CONFIG_DIR/dftool.yaml"
+        cp config/lysec.yaml "$CONFIG_DIR/lysec.yaml"
+        chmod 600 "$CONFIG_DIR/lysec.yaml"
+        success "Config installed to $CONFIG_DIR/lysec.yaml"
     fi
 }
 
 install_systemd() {
     info "Installing systemd service …"
-    cp systemd/dftool.service "$SYSTEMD_DIR/dftool.service"
+    cp systemd/lysec.service "$SYSTEMD_DIR/lysec.service"
     systemctl daemon-reload
-    systemctl enable dftool.service
+    systemctl enable lysec.service
     success "Systemd service installed and enabled"
 }
 
@@ -116,22 +154,23 @@ print_summary() {
     echo -e "${GREEN} Installation Complete!${NC}"
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "  Config:   ${CYAN}$CONFIG_DIR/dftool.yaml${NC}"
+    echo -e "  Config:   ${CYAN}$CONFIG_DIR/lysec.yaml${NC}"
     echo -e "  Logs:     ${CYAN}$LOG_DIR/${NC}"
     echo -e "  Evidence: ${CYAN}$EVIDENCE_DIR/${NC}"
-    echo -e "  Service:  ${CYAN}dftool.service${NC}"
+    echo -e "  Service:  ${CYAN}lysec.service${NC}"
     echo ""
     echo -e "  ${YELLOW}Quick Start:${NC}"
-    echo -e "    sudo systemctl start dftool     # Start the daemon"
-    echo -e "    sudo systemctl status dftool    # Check status"
-    echo -e "    sudo dftool status              # CLI status"
-    echo -e "    sudo dftool alerts --last 1h    # View recent alerts"
-    echo -e "    sudo dftool timeline            # View event timeline"
+    echo -e "    sudo systemctl start lysec      # Start the daemon"
+    echo -e "    sudo systemctl status lysec     # Check status"
+    echo -e "    sudo lysec status               # CLI status"
+    echo -e "    sudo lysec alerts --last 1h     # View recent alerts"
+    echo -e "    sudo lysec timeline             # View event timeline"
+    echo -e "    lysec-gui                       # Launch desktop GUI"
     echo ""
     echo -e "  ${YELLOW}Run in foreground (debug):${NC}"
-    echo -e "    sudo dftoold start --foreground"
+    echo -e "    sudo lysecd start --foreground"
     echo ""
-    echo -e "  ${RED}Remember: DFTool DETECTS and LOGS only.${NC}"
+    echo -e "  ${RED}Remember: LySec DETECTS and LOGS only.${NC}"
     echo -e "  ${RED}It does NOT prevent or block any activity.${NC}"
     echo ""
 }
@@ -143,6 +182,7 @@ banner
 check_root
 check_python
 create_directories
+create_venv
 install_dependencies
 install_files
 install_config

@@ -27,8 +27,8 @@ try:
 except ImportError:
     HAS_PSUTIL = False
 
-from dftool.monitors.base import BaseMonitor
-from dftool.alert_engine import (
+from lysec.monitors.base import BaseMonitor
+from lysec.alert_engine import (
     SEVERITY_CRITICAL,
     SEVERITY_HIGH,
     SEVERITY_INFO,
@@ -225,3 +225,4 @@ class NetworkMonitor(BaseMonitor):
         self._known_interfaces = self._get_interfaces()
         listeners = self._get_listeners()
         self._baseline_listeners = {self._listener_key(c) for c in listeners}
+

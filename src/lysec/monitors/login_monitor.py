@@ -23,8 +23,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import BinaryIO
 
-from dftool.monitors.base import BaseMonitor
-from dftool.alert_engine import (
+from lysec.monitors.base import BaseMonitor
+from lysec.alert_engine import (
     SEVERITY_CRITICAL,
     SEVERITY_HIGH,
     SEVERITY_INFO,
@@ -313,3 +313,4 @@ class LoginMonitor(BaseMonitor):
             severity=sev,
             details={"source_user": source_user, "target_user": target_user, "success": success},
         )
+

@@ -17,14 +17,14 @@ import sys
 import time
 from pathlib import Path
 
-from dftool.config import load_config, DEFAULT_CONFIG_PATH
-from dftool.forensic_logger import setup_logging, log_event
-from dftool.alert_engine import AlertEngine, SEVERITY_INFO, SEVERITY_CRITICAL
-from dftool.monitors.usb_monitor import USBMonitor
-from dftool.monitors.login_monitor import LoginMonitor
-from dftool.monitors.network_monitor import NetworkMonitor
-from dftool.monitors.process_monitor import ProcessMonitor
-from dftool.monitors.filesystem_monitor import FilesystemMonitor
+from lysec.config import load_config, DEFAULT_CONFIG_PATH
+from lysec.forensic_logger import setup_logging, log_event
+from lysec.alert_engine import AlertEngine, SEVERITY_INFO, SEVERITY_CRITICAL
+from lysec.monitors.usb_monitor import USBMonitor
+from lysec.monitors.login_monitor import LoginMonitor
+from lysec.monitors.network_monitor import NetworkMonitor
+from lysec.monitors.process_monitor import ProcessMonitor
+from lysec.monitors.filesystem_monitor import FilesystemMonitor
 
 logger = logging.getLogger("lysec.daemon")
 
@@ -285,3 +285,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

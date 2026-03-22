@@ -22,8 +22,8 @@ try:
 except ImportError:
     HAS_PSUTIL = False
 
-from dftool.monitors.base import BaseMonitor
-from dftool.alert_engine import (
+from lysec.monitors.base import BaseMonitor
+from lysec.alert_engine import (
     SEVERITY_CRITICAL,
     SEVERITY_HIGH,
     SEVERITY_INFO,
@@ -202,3 +202,4 @@ class ProcessMonitor(BaseMonitor):
                 self._known_procs[info["pid"]] = info
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
+

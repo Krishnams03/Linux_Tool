@@ -30,7 +30,7 @@ try:
 except ImportError:
     HAS_RICH = False
 
-from dftool.config import load_config, DEFAULT_CONFIG_PATH
+from lysec.config import load_config, DEFAULT_CONFIG_PATH
 
 
 console = Console() if HAS_RICH else None
@@ -462,3 +462,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

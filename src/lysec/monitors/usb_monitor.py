@@ -17,8 +17,8 @@ import os
 import time
 from datetime import datetime, timezone
 
-from dftool.monitors.base import BaseMonitor
-from dftool.alert_engine import SEVERITY_HIGH, SEVERITY_INFO, SEVERITY_MEDIUM
+from lysec.monitors.base import BaseMonitor
+from lysec.alert_engine import SEVERITY_HIGH, SEVERITY_INFO, SEVERITY_MEDIUM
 
 logger = logging.getLogger("lysec.monitor.usb")
 
@@ -200,3 +200,4 @@ class USBMonitor(BaseMonitor):
                 self._known_devices[device.sys_path] = info
                 self._prev_device_paths.add(device.sys_path)
         logger.info("Initial USB snapshot: %d devices", len(self._known_devices))
+
