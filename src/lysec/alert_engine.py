@@ -632,7 +632,21 @@ class AlertEngine:
         if not isinstance(details, dict):
             return indicators
 
-        for key in ("ip", "user", "pid", "interface", "path", "serial", "host", "listener"):
+        for key in (
+            "ip",
+            "user",
+            "pid",
+            "ppid",
+            "interface",
+            "path",
+            "exe",
+            "serial",
+            "host",
+            "listener",
+            "process_name",
+            "laddr",
+            "raddr",
+        ):
             value = details.get(key)
             if value is None:
                 continue

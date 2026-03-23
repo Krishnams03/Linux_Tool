@@ -26,6 +26,12 @@ from pathlib import Path
 from typing import Any
 
 try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
+try:
     from watchdog.observers import Observer
     from watchdog.events import (
         FileSystemEventHandler,
@@ -51,6 +57,7 @@ from lysec.alert_engine import (
 )
 
 logger = logging.getLogger("lysec.monitor.filesystem")
+DEFAULT_REMOVABLE_ROOTS = ["/media", "/run/media", "/mnt"]
 
 # Files that are especially critical from a forensic perspective
 CRITICAL_FILES = {
@@ -73,6 +80,10 @@ class ForensicEventHandler(FileSystemEventHandler):
         self._alert = alert_engine
         self._mon_cfg = mon_cfg
         self._fuzzy_cfg = self._mon_cfg.get("fuzzy_hashing", {})
+        self._enable_actor_attribution = bool(self._mon_cfg.get("enable_actor_attribution", True))
+        self._removable_roots = [
+            os.path.abspath(p) for p in self._mon_cfg.get("mount_watch_roots", DEFAULT_REMOVABLE_ROOTS)
+        ]
         self._fuzzy_cache: dict[str, dict[str, str]] = {}
 
     def on_created(self, event):
@@ -108,6 +119,18 @@ class ForensicEventHandler(FileSystemEventHandler):
 
         if dest:
             details["dest_path"] = dest
+
+        norm_path = os.path.abspath(path)
+        details["path"] = norm_path
+        details["is_removable_path"] = any(
+            norm_path == root or norm_path.startswith(root + os.sep)
+            for root in self._removable_roots
+        )
+
+        if self._enable_actor_attribution:
+            actor = _find_actor_for_path(norm_path)
+            if actor:
+                details.update(actor)
 
         # Capture file metadata if still exists
         if os.path.exists(path):
@@ -297,4 +320,43 @@ def _hash_file(filepath: str, algorithm: str = "sha256") -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _find_actor_for_path(path: str) -> dict[str, Any]:
+    """Best-effort actor attribution by matching open file handles to a path."""
+    if not HAS_PSUTIL:
+        return {}
+
+    actors: list[dict[str, Any]] = []
+    try:
+        for proc in psutil.process_iter(["pid", "name", "username", "exe"]):
+            try:
+                for of in proc.open_files() or []:
+                    try:
+                        opened = os.path.abspath(of.path)
+                    except Exception:
+                        continue
+                    if opened == path:
+                        actors.append(
+                            {
+                                "pid": proc.info.get("pid"),
+                                "process_name": proc.info.get("name"),
+                                "user": proc.info.get("username"),
+                                "exe": proc.info.get("exe"),
+                            }
+                        )
+                        break
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:
+        return {}
+
+    if not actors:
+        return {}
+
+    primary = actors[0]
+    primary["actor_pids"] = [a.get("pid") for a in actors if a.get("pid") is not None]
+    if primary.get("exe"):
+        primary["path"] = primary.get("exe")
+    return primary
 

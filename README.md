@@ -219,6 +219,98 @@ High-level implementation status of this project:
 12. New watchdog double-daemon with Unix-socket heartbeat and restart response.
 13. GUI enhancements for filtering, time handling, diagnostics, and analyst decision support.
 14. Demo and runbook assets for coordinator walkthroughs.
+
+## Kali PASS/FAIL Validation Checklist
+
+Use this checklist for complete end-to-end validation on Linux/Kali.
+
+### Pre-check
+
+```bash
+pip install -e .
+sudo systemctl daemon-reload
+sudo systemctl enable --now lysec lysec-watchdog
+sudo systemctl status lysec
+sudo systemctl status lysec-watchdog
+```
+
+Pass criteria:
+
+1. `lysec` service is `active (running)`.
+2. `lysec-watchdog` service is `active (running)`.
+
+### Test Matrix
+
+1. USB attach/detach detection
+  - Action: plug USB, wait 5s, unplug.
+  - Check: `sudo lysec alerts --last 15m`.
+  - PASS if both `USB_DEVICE_ATTACHED` and `USB_DEVICE_REMOVED` appear.
+
+2. Port activity detection
+  - Action: plug/unplug any external port device.
+  - Check: `sudo lysec timeline --start 2026-03-23T00:00:00 --end 2026-03-23T23:59:59 --monitor ports`.
+  - PASS if `PORT_DEVICE_ADDED` or `PORT_DEVICE_REMOVED` appears.
+
+3. Filesystem create/modify/delete detection
+  - Action:
+    ```bash
+    echo a > /tmp/lysec_test.txt
+    echo b >> /tmp/lysec_test.txt
+    rm -f /tmp/lysec_test.txt
+    ```
+  - Check: `sudo lysec timeline --start 2026-03-23T00:00:00 --end 2026-03-23T23:59:59 --monitor filesystem`.
+  - PASS if `FS_FILE_CREATED`, `FS_FILE_MODIFIED`, and `FS_FILE_DELETED` appear.
+
+4. Process suspicious command detection
+  - Action: run `nmap -sn 127.0.0.1/24` (or any configured suspicious binary).
+  - Check: `sudo lysec timeline --start 2026-03-23T00:00:00 --end 2026-03-23T23:59:59 --monitor process`.
+  - PASS if `PROCESS_STARTED` and `SUSPICIOUS_PROCESS` appear.
+
+5. Network connection correlation signal
+  - Action: run a command that creates an outbound connection (for example `nmap -sn 127.0.0.1/24`).
+  - Check: `sudo lysec timeline --start 2026-03-23T00:00:00 --end 2026-03-23T23:59:59 --monitor network`.
+  - PASS if `NEW_CONNECTION` appears with `pid` and `ip` details.
+
+6. Correlation sequence detection
+  - Action: perform USB attach, suspicious process run, and filesystem modify in same window.
+  - Check:
+    ```bash
+    sudo lysec correlate --sequence USB_DEVICE_ATTACHED,SUSPICIOUS_PROCESS,FS_FILE_MODIFIED --last 6h --window 30m
+    ```
+  - PASS if at least one correlated chain is returned.
+
+7. MITRE enrichment
+  - Check: `sudo lysec export --format json --output /tmp/lysec_alerts.json --source alerts`.
+  - PASS if alert `details` include a `mitre` object with tactic/technique fields.
+
+8. Fuzzy hashing fields
+  - Action: modify same file multiple times in a watched path.
+  - Check exported alerts JSON.
+  - PASS if filesystem details include `fuzzy_hash` and `fuzzy_similarity` on modifications.
+
+9. Watchdog recovery
+  - Action: stop primary service `sudo systemctl stop lysec`.
+  - Check within timeout:
+    ```bash
+    sudo systemctl status lysec
+    sudo lysec alerts --last 15m
+    ```
+  - PASS if watchdog restarts primary and emits watchdog critical/restart events.
+
+### Final Evidence Bundle
+
+```bash
+sudo lysec split --last 2h --output-dir /tmp/lysec_split
+sudo lysec export --format json --output /tmp/lysec_evidence.json --source all
+sudo lysec export --format csv --output /tmp/lysec_timeline.csv --source all
+sudo lysec verify
+```
+
+Overall readiness rule:
+
+1. Mark each test as PASS/FAIL.
+2. Require 9/9 PASS for full acceptance.
+3. Any FAIL must include root-cause note and re-test result.
 Installer actions:
 1. Creates isolated venv at `/opt/lysec/.venv`.
 2. Installs package and dependencies.

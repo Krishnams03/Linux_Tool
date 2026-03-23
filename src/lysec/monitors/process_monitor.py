@@ -42,6 +42,7 @@ class ProcessMonitor(BaseMonitor):
         self._suspicious: set[str] = set(
             self._mon_cfg.get("suspicious_names", [])
         )
+        self._alert_on_new_process = bool(self._mon_cfg.get("alert_on_new_process", True))
         # pid -> snapshot
         self._known_procs: dict[int, dict] = {}
         self._first_run = True
@@ -101,6 +102,27 @@ class ProcessMonitor(BaseMonitor):
         user = info.get("username", "?")
         pid = info.get("pid")
         exe = info.get("exe", "")
+        ppid = info.get("ppid")
+
+        base_details = {
+            "pid": pid,
+            "name": name,
+            "exe": exe,
+            "cmdline": cmdline,
+            "user": user,
+            "ppid": ppid,
+        }
+        if exe:
+            base_details["path"] = exe
+
+        if self._alert_on_new_process:
+            self._alert.fire(
+                monitor="process",
+                event_type="PROCESS_STARTED",
+                message=f"Process started: {name} (pid {pid}) by {user}",
+                severity=SEVERITY_INFO,
+                details=base_details,
+            )
 
         logger.debug(
             "NEW_PROCESS pid=%s name=%s user=%s cmd=%s",
@@ -119,14 +141,7 @@ class ProcessMonitor(BaseMonitor):
                 event_type="SUSPICIOUS_PROCESS",
                 message=f"Suspicious process detected: {name} (pid {pid}) by {user}",
                 severity=SEVERITY_HIGH,
-                details={
-                    "pid": pid,
-                    "name": name,
-                    "exe": exe,
-                    "cmdline": cmdline,
-                    "user": user,
-                    "ppid": info.get("ppid"),
-                },
+                details=base_details,
             )
 
         # Root process spawned by non-root parent?

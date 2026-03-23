@@ -84,12 +84,14 @@ DEFAULT_CONFIG = {
             "alert_on_new_listener": True,
             "alert_on_promiscuous": True,       # NIC in promisc mode
             "alert_on_new_interface": True,
+            "alert_on_new_connection": True,
             "monitored_ports": [],              # empty = all
             "baseline_listeners": [],           # auto-populated at first run
         },
         "process": {
             "enabled": True,
             "poll_interval": 1,
+            "alert_on_new_process": True,
             "alert_on_privilege_escalation": True,
             "suspicious_names": [
                 "nc", "ncat", "nmap", "socat", "tcpdump",
@@ -118,6 +120,7 @@ DEFAULT_CONFIG = {
             "recursive": True,
             "watch_removable_media": True,
             "mount_watch_roots": ["/media", "/run/media", "/mnt"],
+            "enable_actor_attribution": True,
             "alert_on_modify": True,
             "alert_on_create": True,
             "alert_on_delete": True,

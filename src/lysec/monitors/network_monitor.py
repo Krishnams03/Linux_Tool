@@ -48,6 +48,7 @@ class NetworkMonitor(BaseMonitor):
         self._baseline_listeners: set[str] = set()
         self._known_interfaces: set[str] = set()
         self._known_connections: set[str] = set()
+        self._connection_details: dict[str, dict[str, Any]] = {}
         self._promisc_cache: set[str] = set()
         self._first_run = True
 
@@ -183,6 +184,7 @@ class NetworkMonitor(BaseMonitor):
         if not HAS_PSUTIL:
             return
         current_conns: set[str] = set()
+        current_details: dict[str, dict[str, Any]] = {}
         for conn in psutil.net_connections(kind="inet"):
             if conn.status == "ESTABLISHED" and conn.raddr:
                 key = (
@@ -190,12 +192,39 @@ class NetworkMonitor(BaseMonitor):
                     f"{conn.raddr.ip}:{conn.raddr.port}|pid={conn.pid}"
                 )
                 current_conns.add(key)
+                detail: dict[str, Any] = {
+                    "laddr": f"{conn.laddr.ip}:{conn.laddr.port}",
+                    "raddr": f"{conn.raddr.ip}:{conn.raddr.port}",
+                    "ip": conn.raddr.ip,
+                    "pid": conn.pid,
+                    "status": conn.status,
+                }
+                if conn.pid and HAS_PSUTIL:
+                    try:
+                        proc = psutil.Process(conn.pid)
+                        detail["process_name"] = proc.name()
+                        detail["exe"] = proc.exe()
+                        if detail.get("exe"):
+                            detail["path"] = detail.get("exe")
+                    except Exception:
+                        pass
+                current_details[key] = detail
 
         new_conns = current_conns - self._known_connections
         for key in new_conns:
-            logger.debug("NEW_CONNECTION: %s", key)
+            logger.info("NEW_CONNECTION: %s", key)
+            if self._mon_cfg.get("alert_on_new_connection", True):
+                details = current_details.get(key, {"connection": key})
+                self._alert.fire(
+                    monitor="network",
+                    event_type="NEW_CONNECTION",
+                    message=f"New established connection detected: {key}",
+                    severity=SEVERITY_MEDIUM,
+                    details=details,
+                )
 
         self._known_connections = current_conns
+        self._connection_details = current_details
 
     # ──────────────────────── /proc fallback ────────────────────────────
     @staticmethod
