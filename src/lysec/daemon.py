@@ -13,7 +13,9 @@ import argparse
 import logging
 import os
 import signal
+import socket
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -52,6 +54,13 @@ class LySecDaemon:
         self._monitors = []
         self._running = False
         self._pid_file = config["daemon"]["pid_file"]
+        wd_cfg = config.get("daemon", {}).get("watchdog", {})
+        self._heartbeat_enabled = bool(wd_cfg.get("enabled", True))
+        self._heartbeat_socket_path = wd_cfg.get(
+            "heartbeat_socket", "/var/run/lysec/lysec-heartbeat.sock"
+        )
+        self._heartbeat_interval_sec = float(wd_cfg.get("heartbeat_interval_sec", 2))
+        self._heartbeat_thread: threading.Thread | None = None
 
     def start(self, foreground: bool = False):
         """Initialize and start the daemon."""
@@ -101,6 +110,9 @@ class LySecDaemon:
 
         self._running = True
 
+        if self._heartbeat_enabled:
+            self._start_heartbeat()
+
         # Main loop — keep daemon alive
         logger.info("LySec daemon running (pid %d) — %d monitors active",
                      os.getpid(), len(self._monitors))
@@ -133,6 +145,25 @@ class LySecDaemon:
 
         self._remove_pid()
         logger.info("LySec daemon stopped")
+
+    def _start_heartbeat(self):
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name="lysec-heartbeat",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
+
+    def _heartbeat_loop(self):
+        while self._running:
+            try:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+                payload = f"lysec:{os.getpid()}:{int(time.time())}".encode("utf-8")
+                sock.sendto(payload, self._heartbeat_socket_path)
+                sock.close()
+            except Exception:
+                pass
+            time.sleep(self._heartbeat_interval_sec)
 
     # ──────────────────────── Internals ─────────────────────────────────
 

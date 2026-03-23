@@ -13,6 +13,14 @@ daemon:
   pid_file: /var/run/lysec/lysecd.pid
   user: root
   group: root
+  watchdog:
+    enabled: true
+    pid_file: /var/run/lysec/lysec-watchdog.pid
+    heartbeat_socket: /var/run/lysec/lysec-heartbeat.sock
+    heartbeat_interval_sec: 2
+    heartbeat_timeout_sec: 8
+    restart_cooldown_sec: 20
+    service_name: lysec.service
 
 logging:
   log_dir: /var/log/lysec
@@ -66,7 +74,7 @@ monitors:
 
   process:
     enabled: true
-    poll_interval: 3
+    poll_interval: 1
     alert_on_privilege_escalation: true
     suspicious_names:
       - nc
@@ -109,6 +117,11 @@ monitors:
     alert_on_modify: true
     alert_on_create: true
     alert_on_delete: true
+    fuzzy_hashing:
+      enabled: true
+      algorithms:
+        - ssdeep
+        - tlsh
 
 alerts:
   alert_log: /var/log/lysec/alerts.log
@@ -138,6 +151,11 @@ alerts:
       - name: network_recon_chain
         events: [NEW_INTERFACE, PROMISCUOUS_MODE, NEW_LISTENER]
         bonus: 12
+
+  mitre:
+    enabled: true
+    default_confidence: 0.7
+    overrides: {}
 
   ml_anomaly:
     enabled: true

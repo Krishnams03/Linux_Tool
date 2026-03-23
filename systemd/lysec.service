@@ -1,8 +1,8 @@
 [Unit]
 Description=LySec - Linux Forensics Monitoring Daemon
 Documentation=https://github.com/yourname/lysec
-After=network.target syslog.target
-Wants=network.target
+After=local-fs.target systemd-udevd.service
+Wants=systemd-udevd.service
 
 [Service]
 Type=forking

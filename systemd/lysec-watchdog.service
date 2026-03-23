@@ -1,0 +1,26 @@
+[Unit]
+Description=LySec - Watchdog Daemon
+Documentation=https://github.com/yourname/lysec
+After=local-fs.target lysec.service
+Wants=lysec.service
+
+[Service]
+Type=forking
+PIDFile=/var/run/lysec/lysec-watchdog.pid
+ExecStart=/usr/local/bin/lysec-watchdog start
+ExecStop=/usr/local/bin/lysec-watchdog stop
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lysec-watchdog
+
+ProtectSystem=strict
+ReadWritePaths=/var/log/lysec /var/lib/lysec /var/run/lysec
+ProtectHome=read-only
+NoNewPrivileges=no
+PrivateTmp=no
+
+[Install]
+WantedBy=multi-user.target

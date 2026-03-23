@@ -74,6 +74,58 @@ LySec uses hybrid detection:
 
 This keeps runtime explainable while still prioritizing unusual multi-signal activity.
 
+## MITRE ATT&CK Enrichment
+
+LySec supports MITRE ATT&CK-aligned enrichment for alerts.
+
+1. Each matching alert includes `details.mitre` metadata.
+2. Fields include `tactic`, `technique_id`, `technique_name`, and `confidence`.
+3. This is enrichment only; it does not change detect-only behavior.
+
+Configure under `alerts.mitre` in `/etc/lysec/lysec.yaml`:
+
+```yaml
+alerts:
+  mitre:
+    enabled: true
+    default_confidence: 0.7
+    overrides: {}
+```
+
+After changing config:
+
+```bash
+sudo systemctl restart lysec
+sudo lysec alerts --last 15m
+```
+
+## Fuzzy Hashing (ssdeep / TLSH)
+
+LySec now supports fuzzy hashing for filesystem events so near-similar file versions can be compared.
+
+Why this helps:
+
+1. SHA-256 changes fully even for a 1-byte modification.
+2. Fuzzy hashes provide similarity context across versions.
+3. Alerts can include `fuzzy_similarity` values (`ssdeep_score` and `tlsh_distance`).
+
+Config (`monitors.filesystem.fuzzy_hashing`):
+
+```yaml
+monitors:
+  filesystem:
+    fuzzy_hashing:
+      enabled: true
+      algorithms: [ssdeep, tlsh]
+```
+
+Linux dependency note:
+
+```bash
+sudo apt install -y libfuzzy-dev
+pip install -e .
+```
+
 ## Installation
 
 ```bash
@@ -119,6 +171,54 @@ sudo systemctl enable --now lysec
 sudo systemctl status lysec
 ```
 
+## Watchdog (Double-Daemon Pattern)
+
+LySec includes a transparent watchdog daemon pattern:
+
+1. Primary daemon: `lysecd` handles forensic monitoring.
+2. Watchdog daemon: `lysec-watchdog` monitors primary liveness.
+3. Heartbeat channel: Unix domain socket (`/var/run/lysec/lysec-heartbeat.sock`).
+4. On missed heartbeat or dead PID, watchdog emits critical alert and attempts controlled restart of `lysec.service`.
+
+Start and verify:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now lysec lysec-watchdog
+sudo systemctl status lysec
+sudo systemctl status lysec-watchdog
+sudo lysec alerts --last 15m
+```
+
+Watchdog configuration is under `daemon.watchdog` in `/etc/lysec/lysec.yaml`.
+
+## Changes Done So Far
+
+High-level implementation status of this project:
+
+1. Rebrand and packaging migration from DFTool to LySec.
+2. Venv-based installer flow to avoid externally-managed environment issues.
+3. Core monitors implemented: USB, Ports, Login, Network, Process, Filesystem.
+4. Dynamic removable-media filesystem watch after daemon startup.
+5. CLI enhancements:
+  - `alerts`, `timeline`, `search`, `export`, `verify`
+  - `anomalies` (ML-ranked incidents)
+  - `split` (per-monitor outputs)
+  - `correlate` (scenario/custom event-chain matching)
+6. Correlation improvements:
+  - sequence alias handling
+  - filesystem event name normalization (`FS_*` compatibility)
+7. Live ML-style anomaly scoring integrated into alert pipeline.
+8. MITRE ATT&CK enrichment integrated into alert details.
+9. Fuzzy hashing support for filesystem events:
+  - `ssdeep`
+  - `TLSH`
+  - similarity fields in alert details
+10. Systemd hardening profile and auditd rule pack for tamper visibility.
+11. Boot ordering tuned for pre-login startup behavior.
+12. New watchdog double-daemon with Unix-socket heartbeat and restart response.
+13. GUI enhancements for filtering, time handling, diagnostics, and analyst decision support.
+14. Demo and runbook assets for coordinator walkthroughs.
 Installer actions:
 1. Creates isolated venv at `/opt/lysec/.venv`.
 2. Installs package and dependencies.
@@ -158,6 +258,25 @@ Launch GUI:
 
 ```bash
 lysec-gui
+```
+
+### Boot Startup Behavior
+
+LySec runs as a systemd service and starts during boot (before interactive user login) when enabled.
+
+Verify:
+
+```bash
+sudo systemctl is-enabled lysec
+sudo systemctl status lysec
+sudo journalctl -u lysec --since "today"
+```
+
+If you changed unit files, reload and re-enable:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now lysec
 ```
 
 ## Day-1 Forensic Checklist (Copy/Paste)
@@ -443,7 +562,7 @@ sudo lysec timeline --start 2026-02-20T00:00:00 --end 2026-02-21T23:59:59 --moni
 sudo lysec correlate --scenario usb_login_modify --last 6h --window 30m --top 20 --output /tmp/lysec_chain_report.json
 sudo lysec correlate --scenario usb_login_delete --last 6h --window 30m
 sudo lysec correlate --scenario usb_to_priv_esc --last 12h --window 1h
-sudo lysec correlate --sequence USB_DEVICE_ATTACHED,LOGIN_SUCCESS,FILE_MODIFIED --last 6h --window 45m
+sudo lysec correlate --sequence USB_DEVICE_ATTACHED,LOGIN_SUCCESS,FS_FILE_MODIFIED --last 6h --window 45m
 ```
 
 ### Timeline and Search
@@ -635,9 +754,15 @@ Decision-making guidance:
 Filesystem events on USB not visible troubleshooting:
 1. Ensure filesystem monitor is enabled in `/etc/lysec/lysec.yaml`.
 2. Ensure watch paths include mount roots (`/media`, `/run/media`, `/mnt`).
+3. Ensure `alert_on_create`, `alert_on_modify`, and `alert_on_delete` are set to `true` under `monitors.filesystem`.
 3. Restart service after config change: `sudo systemctl restart lysec`.
 4. Confirm live events: `sudo lysec alerts --last 10m | grep filesystem`.
 5. Delete/create file on mounted USB and re-check timeline window.
+
+Process suspicious command (`nmap`) not visible troubleshooting:
+1. Ensure process monitor is enabled and poll interval is low (`monitors.process.poll_interval: 1`).
+2. Run a command that lasts a few seconds (for example, `nmap -sn 127.0.0.1/24`) so polling can observe it.
+3. Confirm with `sudo lysec alerts --last 10m` and `sudo lysec timeline --start 2026-03-23T00:00:00 --end 2026-03-23T23:59:59 --monitor process`.
 
 Quick validation commands:
 

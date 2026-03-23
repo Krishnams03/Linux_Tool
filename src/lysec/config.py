@@ -25,6 +25,15 @@ DEFAULT_CONFIG = {
         "pid_file": DEFAULT_PID_FILE,
         "user": "root",
         "group": "root",
+        "watchdog": {
+            "enabled": True,
+            "pid_file": "/var/run/lysec/lysec-watchdog.pid",
+            "heartbeat_socket": "/var/run/lysec/lysec-heartbeat.sock",
+            "heartbeat_interval_sec": 2,
+            "heartbeat_timeout_sec": 8,
+            "restart_cooldown_sec": 20,
+            "service_name": "lysec.service",
+        },
     },
     "logging": {
         "log_dir": DEFAULT_LOG_DIR,
@@ -80,7 +89,7 @@ DEFAULT_CONFIG = {
         },
         "process": {
             "enabled": True,
-            "poll_interval": 3,
+            "poll_interval": 1,
             "alert_on_privilege_escalation": True,
             "suspicious_names": [
                 "nc", "ncat", "nmap", "socat", "tcpdump",
@@ -112,6 +121,10 @@ DEFAULT_CONFIG = {
             "alert_on_modify": True,
             "alert_on_create": True,
             "alert_on_delete": True,
+            "fuzzy_hashing": {
+                "enabled": True,
+                "algorithms": ["ssdeep", "tlsh"],
+            },
         },
     },
     "alerts": {
@@ -161,6 +174,11 @@ DEFAULT_CONFIG = {
                     "bonus": 12,
                 },
             ],
+        },
+        "mitre": {
+            "enabled": True,
+            "default_confidence": 0.7,
+            "overrides": {},
         },
         "ml_anomaly": {
             "enabled": True,

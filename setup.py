@@ -22,6 +22,8 @@ setup(
         "pyyaml>=6.0",
         "rich>=13.0.0",
         "matplotlib>=3.7.0",
+        "ssdeep>=3.4",
+        "py-tlsh>=4.7.2",
     ],
     entry_points={
         "console_scripts": [
@@ -30,6 +32,7 @@ setup(
             "lysec-eval=lysec.evaluate:main",
             "lysec-eval-plot=lysec.plot_eval:main",
             "lysec-gui=lysec.gui:main",
+            "lysec-watchdog=lysec.watchdog:main",
             "dftool=lysec.cli:main",
             "dftoold=lysec.daemon:main",
             "dftool-eval=lysec.evaluate:main",

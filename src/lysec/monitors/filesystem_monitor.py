@@ -42,6 +42,7 @@ except ImportError:
     HAS_WATCHDOG = False
 
 from lysec.monitors.base import BaseMonitor
+from lysec.fuzzy_hash import compute_fuzzy_hashes, compare_fuzzy_hashes
 from lysec.alert_engine import (
     SEVERITY_CRITICAL,
     SEVERITY_HIGH,
@@ -71,6 +72,8 @@ class ForensicEventHandler(FileSystemEventHandler):
         super().__init__()
         self._alert = alert_engine
         self._mon_cfg = mon_cfg
+        self._fuzzy_cfg = self._mon_cfg.get("fuzzy_hashing", {})
+        self._fuzzy_cache: dict[str, dict[str, str]] = {}
 
     def on_created(self, event):
         if event.is_directory:
@@ -129,6 +132,29 @@ class ForensicEventHandler(FileSystemEventHandler):
                 except Exception:
                     pass
 
+                # Optional fuzzy hashes help compare near-similar versions.
+                if self._fuzzy_cfg.get("enabled", True):
+                    algorithms = self._fuzzy_cfg.get("algorithms", ["ssdeep", "tlsh"])
+                    fuzzy = compute_fuzzy_hashes(path, algorithms=algorithms)
+                    if fuzzy:
+                        details["fuzzy_hash"] = fuzzy
+                        prev_fuzzy = self._fuzzy_cache.get(path)
+                        if prev_fuzzy and event_type in ("FILE_MODIFIED", "FILE_MOVED"):
+                            similarity = compare_fuzzy_hashes(prev_fuzzy, fuzzy)
+                            if similarity:
+                                details["fuzzy_similarity"] = similarity
+                        self._fuzzy_cache[path] = fuzzy
+
+        if "DELETED" in event_type:
+            prev_fuzzy = self._fuzzy_cache.get(path)
+            if prev_fuzzy:
+                details["previous_fuzzy_hash"] = prev_fuzzy
+
+        if event_type == "FILE_MOVED" and dest:
+            prev_fuzzy = self._fuzzy_cache.pop(path, None)
+            if prev_fuzzy:
+                self._fuzzy_cache[dest] = prev_fuzzy
+
         action_word = {
             "FILE_CREATED": "created",
             "FILE_MODIFIED": "modified",
@@ -146,11 +172,11 @@ class ForensicEventHandler(FileSystemEventHandler):
 
         # Only fire alerts per config
         should_alert = False
-        if "CREATED" in event_type and self._mon_cfg.get("alert_on_create"):
+        if "CREATED" in event_type and self._mon_cfg.get("alert_on_create", True):
             should_alert = True
-        elif "MODIFIED" in event_type and self._mon_cfg.get("alert_on_modify"):
+        elif "MODIFIED" in event_type and self._mon_cfg.get("alert_on_modify", True):
             should_alert = True
-        elif "DELETED" in event_type and self._mon_cfg.get("alert_on_delete"):
+        elif "DELETED" in event_type and self._mon_cfg.get("alert_on_delete", True):
             should_alert = True
         elif "MOVED" in event_type:
             should_alert = True

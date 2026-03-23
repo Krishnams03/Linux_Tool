@@ -5,3 +5,5 @@ python-daemon>=2.3.0
 pyyaml>=6.0
 rich>=13.0.0
 matplotlib>=3.7.0
+ssdeep>=3.4
+py-tlsh>=4.7.2

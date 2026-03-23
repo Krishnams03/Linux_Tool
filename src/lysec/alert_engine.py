@@ -28,6 +28,115 @@ except ImportError:
 
 logger = logging.getLogger("lysec.alerts")
 
+
+DEFAULT_MITRE_MAP = {
+    "USB_DEVICE_ATTACHED": {
+        "tactic": "Initial Access",
+        "technique_id": "T1091",
+        "technique_name": "Replication Through Removable Media",
+    },
+    "USB_DEVICE_REMOVED": {
+        "tactic": "Collection",
+        "technique_id": "T1074",
+        "technique_name": "Data Staged",
+    },
+    "PORT_DEVICE_ADDED": {
+        "tactic": "Initial Access",
+        "technique_id": "T1200",
+        "technique_name": "Hardware Additions",
+    },
+    "PORT_DEVICE_REMOVED": {
+        "tactic": "Collection",
+        "technique_id": "T1074",
+        "technique_name": "Data Staged",
+    },
+    "LOGIN_SUCCESS": {
+        "tactic": "Initial Access",
+        "technique_id": "T1078",
+        "technique_name": "Valid Accounts",
+    },
+    "LOGIN_FAILED": {
+        "tactic": "Credential Access",
+        "technique_id": "T1110",
+        "technique_name": "Brute Force",
+    },
+    "BRUTE_FORCE_DETECTED": {
+        "tactic": "Credential Access",
+        "technique_id": "T1110",
+        "technique_name": "Brute Force",
+    },
+    "SUDO_COMMAND": {
+        "tactic": "Privilege Escalation",
+        "technique_id": "T1548",
+        "technique_name": "Abuse Elevation Control Mechanism",
+    },
+    "SU_SUCCESS": {
+        "tactic": "Privilege Escalation",
+        "technique_id": "T1548",
+        "technique_name": "Abuse Elevation Control Mechanism",
+    },
+    "NEW_LISTENER": {
+        "tactic": "Command and Control",
+        "technique_id": "T1571",
+        "technique_name": "Non-Standard Port",
+    },
+    "NEW_INTERFACE": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1200",
+        "technique_name": "Hardware Additions",
+    },
+    "PROMISCUOUS_MODE": {
+        "tactic": "Credential Access",
+        "technique_id": "T1040",
+        "technique_name": "Network Sniffing",
+    },
+    "SUSPICIOUS_PROCESS": {
+        "tactic": "Execution",
+        "technique_id": "T1059",
+        "technique_name": "Command and Scripting Interpreter",
+    },
+    "PRIVILEGE_ESCALATION": {
+        "tactic": "Privilege Escalation",
+        "technique_id": "T1068",
+        "technique_name": "Exploitation for Privilege Escalation",
+    },
+    "UID_CHANGE": {
+        "tactic": "Privilege Escalation",
+        "technique_id": "T1548",
+        "technique_name": "Abuse Elevation Control Mechanism",
+    },
+    "FS_FILE_CREATED": {
+        "tactic": "Persistence",
+        "technique_id": "T1547",
+        "technique_name": "Boot or Logon Autostart Execution",
+    },
+    "FS_FILE_MODIFIED": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1565.001",
+        "technique_name": "Stored Data Manipulation",
+    },
+    "FS_FILE_DELETED": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1070.004",
+        "technique_name": "File Deletion",
+    },
+    "FS_FILE_MOVED": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1070.004",
+        "technique_name": "File Deletion",
+    },
+    "CORRELATED_INCIDENT": {
+        "tactic": "Impact",
+        "technique_id": "T1485",
+        "technique_name": "Data Destruction",
+    },
+    "ML_ANOMALY_INCIDENT": {
+        "tactic": "Collection",
+        "technique_id": "T1005",
+        "technique_name": "Data from Local System",
+    },
+}
+
 # ──────────────────────────────────────────────
 # Severity levels (VERIS-inspired)
 # ──────────────────────────────────────────────
@@ -103,6 +212,12 @@ class AlertEngine:
             ],
         )
 
+        mitre_cfg = self._config.get("mitre", {})
+        self._mitre_enabled = bool(mitre_cfg.get("enabled", True))
+        self._mitre_confidence = float(mitre_cfg.get("default_confidence", 0.7))
+        self._mitre_map = dict(DEFAULT_MITRE_MAP)
+        self._mitre_map.update(mitre_cfg.get("overrides", {}))
+
         # Online ML-style anomaly settings
         ml_cfg = self._config.get("ml_anomaly", {})
         self._ml_enabled = ml_cfg.get("enabled", True)
@@ -156,6 +271,9 @@ class AlertEngine:
             "details": details or {},
         }
 
+        if self._mitre_enabled:
+            self._apply_mitre_enrichment(alert)
+
         # Deduplication
         dedup_key = f"{monitor}:{event_type}:{json.dumps(details, sort_keys=True, default=str)}"
         last = self._seen.get(dedup_key, 0)
@@ -173,6 +291,25 @@ class AlertEngine:
         # ── Live anomaly (hybrid ML-style ranking) ──
         if self._ml_enabled and event_type not in ("CORRELATED_INCIDENT", "ML_ANOMALY_INCIDENT"):
             self._maybe_emit_live_anomaly(alert)
+
+    def _apply_mitre_enrichment(self, alert: dict[str, Any]):
+        event_type = str(alert.get("event_type", "")).strip().upper()
+        mapping = self._mitre_map.get(event_type)
+        if not mapping:
+            return
+
+        details = alert.get("details")
+        if not isinstance(details, dict):
+            details = {}
+            alert["details"] = details
+
+        details["mitre"] = {
+            "tactic": mapping.get("tactic", ""),
+            "technique_id": mapping.get("technique_id", ""),
+            "technique_name": mapping.get("technique_name", ""),
+            "framework": "MITRE ATT&CK",
+            "confidence": self._mitre_confidence,
+        }
 
     # ──────────────────────────────────────────
     # Correlation logic

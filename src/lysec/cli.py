@@ -368,10 +368,20 @@ def cmd_split(args, config):
 
 
 SCENARIOS = {
-    "usb_login_modify": ["USB_DEVICE_ATTACHED", "LOGIN_SUCCESS", "FILE_MODIFIED"],
-    "usb_login_delete": ["USB_DEVICE_ATTACHED", "LOGIN_SUCCESS", "FILE_DELETED"],
+    "usb_login_modify": ["USB_DEVICE_ATTACHED", "LOGIN_SUCCESS", "FS_FILE_MODIFIED"],
+    "usb_login_delete": ["USB_DEVICE_ATTACHED", "LOGIN_SUCCESS", "FS_FILE_DELETED"],
     "usb_to_priv_esc": ["USB_DEVICE_ATTACHED", "LOGIN_SUCCESS", "PRIVILEGE_ESCALATION"],
     "recon_to_priv": ["NEW_INTERFACE", "PROMISCUOUS_MODE", "PRIVILEGE_ESCALATION"],
+}
+
+
+EVENT_ALIASES = {
+    "FILE_CREATED": {"FILE_CREATED", "FS_FILE_CREATED"},
+    "FILE_MODIFIED": {"FILE_MODIFIED", "FS_FILE_MODIFIED"},
+    "FILE_DELETED": {"FILE_DELETED", "FS_FILE_DELETED"},
+    "FILE_MOVED": {"FILE_MOVED", "FS_FILE_MOVED"},
+    "DIR_CREATED": {"DIR_CREATED", "FS_DIR_CREATED"},
+    "DIR_DELETED": {"DIR_DELETED", "FS_DIR_DELETED"},
 }
 
 
@@ -590,10 +600,42 @@ def _filter_entries_last(entries: list[dict], last: str | None) -> list[dict]:
 
 def _resolve_sequence(scenario: str | None, sequence: str | None) -> list[str]:
     if sequence:
-        return [s.strip() for s in sequence.split(",") if s.strip()]
+        raw = [s.strip() for s in sequence.split(",") if s.strip()]
+        return [_normalize_event_name(s) for s in raw]
     if scenario:
         return SCENARIOS.get(scenario, [])
     return []
+
+
+def _normalize_event_name(name: str) -> str:
+    key = str(name or "").strip().upper()
+    if not key:
+        return key
+    aliases = EVENT_ALIASES.get(key)
+    if aliases:
+        # Prefer canonical FS_* representation for filesystem events.
+        for item in aliases:
+            if item.startswith("FS_"):
+                return item
+    return key
+
+
+def _event_matches(actual_event: str, expected_event: str) -> bool:
+    actual = str(actual_event or "").strip().upper()
+    expected = _normalize_event_name(expected_event)
+    if actual == expected:
+        return True
+
+    aliases = EVENT_ALIASES.get(expected)
+    if aliases and actual in aliases:
+        return True
+
+    # Also allow expected to be a plain alias key while actual is canonical.
+    aliases = EVENT_ALIASES.get(str(expected_event or "").strip().upper())
+    if aliases and actual in aliases:
+        return True
+
+    return False
 
 
 def _find_ordered_sequences(
@@ -617,7 +659,7 @@ def _find_ordered_sequences(
     findings: list[dict] = []
 
     for idx, (start_ts, start_event) in enumerate(events):
-        if str(start_event.get("event_type", "")) != sequence[0]:
+        if not _event_matches(start_event.get("event_type", ""), sequence[0]):
             continue
 
         chain = [start_event]
@@ -628,7 +670,7 @@ def _find_ordered_sequences(
             ts, entry = events[j]
             if ts - start_ts > max_span:
                 break
-            if str(entry.get("event_type", "")) == sequence[current_step]:
+            if _event_matches(entry.get("event_type", ""), sequence[current_step]):
                 chain.append(entry)
                 end_ts = ts
                 current_step += 1
@@ -726,7 +768,7 @@ def main():
     # correlate
     p_corr = sub.add_parser("correlate", help="Find ordered attack chains")
     p_corr.add_argument("--scenario", choices=sorted(SCENARIOS.keys()), help="Predefined attack scenario")
-    p_corr.add_argument("--sequence", help="Custom event sequence CSV (e.g., USB_DEVICE_ATTACHED,LOGIN_SUCCESS,FILE_MODIFIED)")
+    p_corr.add_argument("--sequence", help="Custom event sequence CSV (e.g., USB_DEVICE_ATTACHED,LOGIN_SUCCESS,FS_FILE_MODIFIED)")
     p_corr.add_argument("--last", "-l", default="6h", help="Lookback duration (default: 6h)")
     p_corr.add_argument("--window", "-w", default="30m", help="Max allowed span for one chain (default: 30m)")
     p_corr.add_argument("--top", "-t", type=int, default=20, help="Max chains to display (default: 20)")

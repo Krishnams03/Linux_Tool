@@ -120,6 +120,7 @@ install_files() {
     ln -sf "$VENV_DIR/bin/lysec-eval" /usr/local/bin/lysec-eval
     ln -sf "$VENV_DIR/bin/lysec-eval-plot" /usr/local/bin/lysec-eval-plot
     ln -sf "$VENV_DIR/bin/lysec-gui" /usr/local/bin/lysec-gui
+    ln -sf "$VENV_DIR/bin/lysec-watchdog" /usr/local/bin/lysec-watchdog
 
     # Legacy command aliases for compatibility
     ln -sf "$VENV_DIR/bin/dftool" /usr/local/bin/dftool
@@ -143,8 +144,10 @@ install_config() {
 install_systemd() {
     info "Installing systemd service …"
     cp systemd/lysec.service "$SYSTEMD_DIR/lysec.service"
+    cp systemd/lysec-watchdog.service "$SYSTEMD_DIR/lysec-watchdog.service"
     systemctl daemon-reload
     systemctl enable lysec.service
+    systemctl enable lysec-watchdog.service
     success "Systemd service installed and enabled"
 }
 
@@ -158,9 +161,11 @@ print_summary() {
     echo -e "  Logs:     ${CYAN}$LOG_DIR/${NC}"
     echo -e "  Evidence: ${CYAN}$EVIDENCE_DIR/${NC}"
     echo -e "  Service:  ${CYAN}lysec.service${NC}"
+    echo -e "  Watchdog: ${CYAN}lysec-watchdog.service${NC}"
     echo ""
     echo -e "  ${YELLOW}Quick Start:${NC}"
     echo -e "    sudo systemctl start lysec      # Start the daemon"
+    echo -e "    sudo systemctl start lysec-watchdog # Start watchdog"
     echo -e "    sudo systemctl status lysec     # Check status"
     echo -e "    sudo lysec status               # CLI status"
     echo -e "    sudo lysec alerts --last 1h     # View recent alerts"
