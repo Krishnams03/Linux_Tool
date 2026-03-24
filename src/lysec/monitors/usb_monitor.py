@@ -35,22 +35,30 @@ class USBMonitor(BaseMonitor):
         self._context = None
         # Track previously seen device paths for reliable change detection
         self._prev_device_paths: set[str] = set()
+        # Track device file permissions for change detection
+        self._device_perms: dict[str, str] = {}  # dev_path -> octal_perms
 
     # ── Setup ──
     def setup(self):
         try:
             import pyudev
+
             self._context = pyudev.Context()
             # Take initial inventory
             self._snapshot_devices()
+            # Take baseline of device file permissions
+            self._device_perms = self._get_all_device_perms()
             logger.info(
-                "USB monitor initialised — %d device(s) present",
+                "USB monitor initialised — %d device(s) present, %d device file(s) tracked",
                 len(self._known_devices),
+                len(self._device_perms),
             )
         except ImportError:
             logger.warning(
                 "pyudev not installed — falling back to /sys/bus/usb polling"
             )
+            # Still track device file permissions even without pyudev
+            self._device_perms = self._get_all_device_perms()
         except Exception as exc:
             logger.error("USB monitor setup error: %s", exc)
 
@@ -58,8 +66,10 @@ class USBMonitor(BaseMonitor):
     def poll(self):
         if self._context is not None:
             self._poll_udev()
+            self._check_device_perms()  # Check for permission changes
         else:
             self._poll_sysfs()
+            self._check_device_perms()  # Check for permission changes
 
     # ──────────────────────── udev-based polling ────────────────────────
     def _poll_udev(self):
@@ -90,7 +100,9 @@ class USBMonitor(BaseMonitor):
             "sys_path": device.sys_path,
             "vendor_id": device.get("ID_VENDOR_ID", ""),
             "product_id": device.get("ID_MODEL_ID", ""),
-            "vendor": device.get("ID_VENDOR_FROM_DATABASE", device.get("ID_VENDOR", "")),
+            "vendor": device.get(
+                "ID_VENDOR_FROM_DATABASE", device.get("ID_VENDOR", "")
+            ),
             "model": device.get("ID_MODEL_FROM_DATABASE", device.get("ID_MODEL", "")),
             "serial": device.get("ID_SERIAL_SHORT", ""),
             "bus_num": device.get("BUSNUM", ""),
@@ -165,7 +177,7 @@ class USBMonitor(BaseMonitor):
                 monitor="usb",
                 event_type="USB_DEVICE_ATTACHED",
                 message=f"Unknown USB device attached: {vid_pid} "
-                        f"({info.get('model') or info.get('product', 'unknown')})",
+                f"({info.get('model') or info.get('product', 'unknown')})",
                 severity=SEVERITY_HIGH,
                 details=info,
             )
@@ -190,14 +202,93 @@ class USBMonitor(BaseMonitor):
             details=info,
         )
 
+    # ──────────────────────── Permission Change Monitoring ──────────────
+    def _check_device_perms(self):
+        """Check for permission changes on USB device files."""
+        current_perms = self._get_all_device_perms()
+
+        for dev_path, perms in current_perms.items():
+            if dev_path not in self._device_perms:
+                # New device file tracked
+                self._device_perms[dev_path] = perms
+            elif self._device_perms[dev_path] != perms:
+                # Permission changed
+                old_perms = self._device_perms[dev_path]
+                self._on_device_perm_changed(dev_path, old_perms, perms)
+                self._device_perms[dev_path] = perms
+
+        # Clean up removed device files
+        for dev_path in list(self._device_perms.keys()):
+            if dev_path not in current_perms:
+                del self._device_perms[dev_path]
+
+    def _get_all_device_perms(self) -> dict[str, str]:
+        """Get current permissions for all USB device files."""
+        perms = {}
+
+        # Scan /dev for USB device files (sdX, sdX1-9, etc.)
+        try:
+            for entry in os.listdir("/dev"):
+                # Look for SD/USB block devices
+                if entry.startswith("sd"):
+                    dev_path = f"/dev/{entry}"
+                    if os.path.exists(dev_path):
+                        try:
+                            stat_info = os.stat(dev_path)
+                            mode_octal = oct(stat_info.st_mode)[
+                                -3:
+                            ]  # Last 3 octal digits
+                            perms[dev_path] = mode_octal
+                        except (OSError, PermissionError):
+                            pass
+
+                # Look for other USB block devices (tty, etc.)
+                elif entry.startswith("ttyUSB"):
+                    dev_path = f"/dev/{entry}"
+                    if os.path.exists(dev_path):
+                        try:
+                            stat_info = os.stat(dev_path)
+                            mode_octal = oct(stat_info.st_mode)[-3:]
+                            perms[dev_path] = mode_octal
+                        except (OSError, PermissionError):
+                            pass
+        except OSError:
+            pass
+
+        return perms
+
+    def _on_device_perm_changed(self, dev_path: str, old_perms: str, new_perms: str):
+        """Alert when USB device file permissions change."""
+        logger.warning(
+            "USB device permissions changed: %s [%s -> %s]",
+            dev_path,
+            old_perms,
+            new_perms,
+        )
+
+        self._alert.fire(
+            monitor="usb",
+            event_type="USB_DEVICE_PERM_CHANGED",
+            message=f"USB device permissions changed: {dev_path} ({old_perms} -> {new_perms})",
+            severity=SEVERITY_HIGH,
+            details={
+                "device_path": dev_path,
+                "old_permissions": old_perms,
+                "new_permissions": new_perms,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
     # ──────────────────────── Helpers ───────────────────────────────────
     def _snapshot_devices(self):
         """Take initial snapshot so we don't alert on boot-time devices."""
         if self._context:
             import pyudev
-            for device in self._context.list_devices(subsystem="usb", DEVTYPE="usb_device"):
+
+            for device in self._context.list_devices(
+                subsystem="usb", DEVTYPE="usb_device"
+            ):
                 info = self._extract_udev_info(device)
                 self._known_devices[device.sys_path] = info
                 self._prev_device_paths.add(device.sys_path)
         logger.info("Initial USB snapshot: %d devices", len(self._known_devices))
-
